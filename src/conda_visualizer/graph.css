@@ -1,0 +1,178 @@
+:host {
+  position: relative;
+}
+
+.cy-container {
+  position: absolute;
+  inset: 0;
+  background: var(--cy-bg);
+}
+
+.cy-empty {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--cy-muted);
+  font: 0.95rem system-ui, sans-serif;
+  pointer-events: none;
+}
+
+.cy-tooltip {
+  position: absolute;
+  display: none;
+  z-index: 10;
+  max-width: 340px;
+  padding: 6px 9px;
+  border: 1px solid var(--cy-border);
+  border-radius: 6px;
+  background: var(--cy-panel);
+  color: var(--cy-text);
+  font: 12px/1.5 system-ui, sans-serif;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+  pointer-events: none;
+}
+
+.cy-tooltip .cy-tt-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+  overflow-wrap: anywhere;
+}
+
+.cy-tooltip span {
+  display: inline-block;
+  min-width: 70px;
+  color: var(--cy-muted);
+}
+
+.cy-tooltip .cy-tt-tag {
+  min-width: 0;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--cy-border);
+  color: var(--cy-text);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.cy-toolbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 42px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--cy-border);
+  background: var(--cy-bg);
+  color: var(--cy-text);
+  font: 13px system-ui, sans-serif;
+  overflow-x: auto;
+}
+
+.cy-search-wrap {
+  position: relative;
+  flex: 1 1 220px;
+  min-width: 160px;
+  max-width: 340px;
+}
+
+.cy-search {
+  width: 100%;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 80px 0 10px;
+  border: 1px solid var(--cy-border);
+  border-radius: 6px;
+  background: var(--cy-bg);
+  color: var(--cy-text);
+  font: inherit;
+}
+
+.cy-search:focus {
+  outline: 2px solid var(--cy-accent);
+  outline-offset: -1px;
+}
+
+.cy-count {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--cy-muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.cy-toolbar select,
+.cy-toolbar button {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--cy-border);
+  border-radius: 6px;
+  background: var(--cy-bg);
+  color: var(--cy-text);
+  font: inherit;
+  cursor: pointer;
+  flex: none;
+}
+
+.cy-toolbar button:hover:not(:disabled),
+.cy-toolbar select:hover {
+  border-color: var(--cy-muted);
+}
+
+.cy-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.cy-toolbar button.active {
+  border-color: var(--cy-accent);
+  color: var(--cy-accent);
+}
+
+.cy-card {
+  position: absolute;
+  display: none;
+  left: 10px;
+  bottom: 10px;
+  z-index: 5;
+  width: min(360px, calc(100% - 20px));
+  max-height: 45%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--cy-border);
+  border-radius: 6px;
+  background: var(--cy-panel);
+  color: var(--cy-text);
+  font: 12px/1.5 system-ui, sans-serif;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+}
+
+.cy-card-meta {
+  color: var(--cy-muted);
+  margin-bottom: 4px;
+}
+
+.cy-card-list {
+  margin-top: 4px;
+}
+
+.cy-card-list span {
+  display: block;
+  color: var(--cy-muted);
+  font-weight: 600;
+}
+
+.cy-card-list a {
+  color: var(--cy-text);
+  text-decoration: underline dotted;
+  cursor: pointer;
+}

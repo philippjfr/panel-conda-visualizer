@@ -1,0 +1,9 @@
+name: demo
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pandas
+  - panel
+  - pip:
+      - rich
