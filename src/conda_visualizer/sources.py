@@ -161,7 +161,8 @@ class PrefixSource(Source):
     def graph(self, platform=None, environment=None) -> DependencyGraph:
         meta = self.prefix / "conda-meta"
         g = DependencyGraph(source=str(self.prefix))
-        requested = self.history_specs()
+        specs = self.history_spec_map()
+        requested = set(specs)
         pypi_names: dict[str, str] = {}
         for path in sorted(meta.glob("*.json")):
             try:
@@ -170,8 +171,10 @@ class PrefixSource(Source):
                 g.warnings.append(f"Could not read {path.name}: {exc}")
                 continue
             name = record["name"]
-            g.platform = g.platform or record.get("subdir", "")
+            if record.get("subdir") not in (None, "", "noarch"):
+                g.platform = g.platform or record["subdir"]
             explicit = record.get("requested_spec") or record.get("requested_specs")
+            spec = specs.get(name) or (explicit if isinstance(explicit, str) else None)
             g.add_package(
                 name,
                 version=record.get("version"),
@@ -182,6 +185,7 @@ class PrefixSource(Source):
                 license=record.get("license"),
                 url=record.get("url"),
                 requested=name in requested or bool(explicit),
+                requested_spec=spec if spec != name else None,
             )
             for dep in record.get("depends", []):
                 g.add_dependency(name, spec_name(dep), dep)
@@ -205,23 +209,29 @@ class PrefixSource(Source):
 
     def history_specs(self) -> set[str]:
         """Names the user explicitly asked for, replayed from ``conda-meta/history``."""
+        return set(self.history_spec_map())
+
+    def history_spec_map(self) -> dict[str, str]:
+        """Requested package name -> last spec the user gave, without a channel prefix."""
         history = self.prefix / "conda-meta" / "history"
-        names: set[str] = set()
+        specs: dict[str, str] = {}
         if not history.exists():
-            return names
+            return specs
         for line in history.read_text(errors="replace").splitlines():
             match = re.match(r"#\s*(update|remove|neutered) specs:\s*(\[.*\])", line)
             if not match:
                 continue
             try:
-                specs = {spec_name(s) for s in ast.literal_eval(match.group(2))}
+                given = ast.literal_eval(match.group(2))
             except (ValueError, SyntaxError):
                 continue
-            if match.group(1) == "remove":
-                names -= specs
-            else:
-                names |= specs
-        return names
+            for spec in given:
+                name = spec_name(spec)
+                if match.group(1) == "remove":
+                    specs.pop(name, None)
+                else:
+                    specs[name] = re.sub(r"^[^\s:\[]+::", "", spec)
+        return specs
 
     def _pip_dists(self) -> Iterable[dict]:
         patterns = ("lib/python*/site-packages/*.dist-info", "Lib/site-packages/*.dist-info")
@@ -449,6 +459,7 @@ class EnvironmentFileSource(Source):
         records = solve(conda_specs, self.channels, platform)
         g = DependencyGraph(source=self.label, platform=platform)
         requested = {spec_name(s) for s in conda_specs}
+        requested_specs = {spec_name(s): s for s in conda_specs if s.strip() != spec_name(s)}
         for rec in records:
             name = rec.name.normalized
             g.add_package(
@@ -461,6 +472,7 @@ class EnvironmentFileSource(Source):
                 license=rec.license,
                 url=str(rec.url),
                 requested=name in requested,
+                requested_spec=requested_specs.get(name),
             )
             for dep in rec.depends:
                 g.add_dependency(name, spec_name(dep), dep)
@@ -485,15 +497,8 @@ def _virtual_packages(platform: str):
     ]
 
 
-def solve(specs: list[str], channels: list[str], platform: str):
-    if rattler is None:
-        raise SourceError("Solving environment.yml requires py-rattler")
-    coro = rattler.solve(
-        sources=channels,
-        specs=specs,
-        platforms=[platform, "noarch"],
-        virtual_packages=_virtual_packages(platform),
-    )
+def run_sync(coro):
+    """Run a coroutine to completion, also when called from inside an event loop."""
     try:
         asyncio.get_running_loop()
     except RuntimeError:
@@ -501,6 +506,19 @@ def solve(specs: list[str], channels: list[str], platform: str):
     # Panel callbacks may already run inside an event loop.
     with ThreadPoolExecutor(1) as pool:
         return pool.submit(asyncio.run, coro).result()
+
+
+def solve(specs: list[str], channels: list[str], platform: str):
+    if rattler is None:
+        raise SourceError("Solving environment.yml requires py-rattler")
+    return run_sync(
+        rattler.solve(
+            sources=channels,
+            specs=specs,
+            platforms=[platform, "noarch"],
+            virtual_packages=_virtual_packages(platform),
+        )
+    )
 
 
 # DOT ----------------------------------------------------------------------

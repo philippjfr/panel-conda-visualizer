@@ -26,8 +26,23 @@ from conda_visualizer.sources import (
     list_environments,
     open_source,
 )
+from conda_visualizer.theme import (
+    FAVICON,
+    FONTS_CSS,
+    LOGO,
+    RAW_CSS,
+    STANDALONE_CSS,
+    THEME_CONFIG,
+)
+from conda_visualizer.updates_panel import UpdatesPanel
 
-pn.extension("tabulator", notifications=True, throttled=True)
+pn.extension(
+    "tabulator",
+    notifications=True,
+    throttled=True,
+    css_files=[FONTS_CSS],
+    raw_css=[RAW_CSS],
+)
 
 #: conda-tree's ``--small`` hides these; nearly every package depends on them.
 COMMON = ("python", "conda")
@@ -70,6 +85,12 @@ class Explorer(pn.viewable.Viewer):
 
     small = param.Boolean(default=False, label="Hide python and conda")
 
+    changes_only = param.Boolean(
+        default=True,
+        label="Show only changed packages",
+        doc="While a version change is previewed, hide packages it does not touch.",
+    )
+
     full = param.Parameter(default=None, doc="The complete DependencyGraph of the source.")
 
     view = param.Parameter(default=None, doc="The displayed subgraph.")
@@ -105,6 +126,8 @@ class Explorer(pn.viewable.Viewer):
             header_filters=True,
         )
         self._cycles = pn.pane.Markdown(sizing_mode="stretch_width")
+        self._updates = UpdatesPanel()
+        self._keep_view = False
         self._source_obj: Source | None = None
         super().__init__(**params)
 
@@ -174,6 +197,10 @@ class Explorer(pn.viewable.Viewer):
         self._versions = pmui.Switch.from_param(
             self._graph.param.show_versions, label="Show versions"
         )
+        self._changes_only_switch = pmui.Switch.from_param(self.param.changes_only, visible=False)
+        self._latest = pmui.Switch.from_param(
+            self._graph.param.show_latest, label="Show newest versions"
+        )
         self._html = pmui.FileDownload(
             label="HTML",
             icon="public",
@@ -223,14 +250,21 @@ class Explorer(pn.viewable.Viewer):
             self._hide_virtual,
             self._small,
             self._versions,
+            self._latest,
+            pmui.Divider(),
+            self._section("Versions"),
+            self._updates,
+            self._changes_only_switch,
             sizing_mode="stretch_width",
         )
         tabs = pmui.Tabs(
             ("Package", self._details),
             ("Packages", self._table),
             ("Leaves", self._leaves),
+            ("Changes", self._updates.table),
             ("Cycles", self._cycles),
             ("Tree", self._tree),
+            dynamic=True,
             sizing_mode="stretch_width",
         )
         main = pmui.Column(
@@ -242,6 +276,9 @@ class Explorer(pn.viewable.Viewer):
         )
         self._page = pmui.Page(
             title="Conda Visualizer",
+            logo=LOGO,
+            favicon=FAVICON,
+            theme_config=THEME_CONFIG,
             sidebar=[sidebar],
             main=[main],
             header=[
@@ -262,6 +299,10 @@ class Explorer(pn.viewable.Viewer):
         self._graph.on_dblclick(self._on_dblclick)
         self._graph.param.watch(self._update_details, "selected")
         self._table.on_click(self._on_row_click)
+        self._updates.table.on_click(self._on_row_click)
+        self._updates.param.watch(self._on_current, "current")
+        self._updates.param.watch(self._on_plan, "plan")
+        self._graph.param.watch(lambda e: setattr(self._updates, "selected", e.new), "selected")
         self._leaves.on_click(self._on_row_click)
         self._page.param.watch(self._sync_theme, "dark_theme")
         self._graph.dark_theme = self._page.dark_theme
@@ -329,10 +370,24 @@ class Explorer(pn.viewable.Viewer):
                 hide=[n for n in self.hide if n in full],
                 full=full,
             )
+            self._updates.reset(full)
             if full.warnings:
                 self._show_message("\n".join(full.warnings), "warning")
             else:
                 self._message.visible = False
+
+    def _on_plan(self, event):
+        self._changes_only_switch.visible = event.new is not None
+
+    def _on_current(self, event):
+        """Show the annotated graph, with the active preview applied."""
+        if event.new is not None and event.new is not self.full:
+            # Looking up versions or previewing a change must not move the selected package.
+            self._keep_view = True
+            try:
+                self.full = event.new
+            finally:
+                self._keep_view = False
 
     def _show_message(self, text, severity):
         self._message.param.update(object=text, severity=severity, visible=True)
@@ -348,6 +403,7 @@ class Explorer(pn.viewable.Viewer):
         "hide",
         "hide_virtual",
         "small",
+        "changes_only",
         watch=True,
     )
     def _update_view(self):
@@ -366,16 +422,30 @@ class Explorer(pn.viewable.Viewer):
             requested = [n for n in nodes if full.graph.nodes[n].get("requested")]
             nodes = full.neighborhood(requested or full.leaves(), "depends", 1, hide=hide)
             truncated = True
+        nodes = self._only_changes(full, nodes)
         view = full.subgraph(nodes)
         with pn.io.hold():
             self.view = view
-            self._graph.param.update(elements=view.to_elements(), filename=self._export_name)
+            elements = view.to_elements()
+            if self._keep_view:
+                elements["keep_view"] = True
+            self._graph.param.update(elements=elements, filename=self._export_name)
             if not self._graph.selected or self._graph.selected not in view:
                 self._graph.selected = self.focus
             self._graph.loading = False
             self._update_tables(full, view)
             self._update_stats(full, view, truncated)
             self._update_details()
+
+    def _only_changes(self, full: DependencyGraph, nodes: set[str]) -> set[str]:
+        """While a preview is active, keep the changed packages and what the pinned ones need."""
+        data = dict(full.graph.nodes(data=True))
+        changed = {n for n in nodes if data[n].get("change")}
+        if not self.changes_only or not any(d.get("change") for d in data.values()):
+            return nodes
+        pinned = [n for n in changed if data[n].get("target")]
+        context = {dep for n in pinned for dep in full.graph.successors(n)}
+        return changed | (context & nodes)
 
     def _update_stats(self, full, view, truncated):
         where = full.source + (f" · {full.platform}" if full.platform else "")
@@ -385,9 +455,15 @@ class Explorer(pn.viewable.Viewer):
             if truncated
             else ""
         )
+        late = sum(1 for _, d in full.graph.nodes(data=True) if d.get("outdated"))
+        newer = (
+            f"  ·  {late} outdated"
+            if any("latest" in d for _, d in full.graph.nodes(data=True))
+            else ""
+        )
         self._stats.object = (
             f"**{where}**  ·  {shown}  ·  {len(full.leaves())} leaves  ·  "
-            f"{len(full.cycles())} cycles{note}"
+            f"{len(full.cycles())} cycles{newer}{note}"
         )
 
     def _update_tables(self, full, view):
@@ -415,6 +491,11 @@ class Explorer(pn.viewable.Viewer):
         if info.get("requested"):
             lines.append("*explicitly requested*")
         lines += [f"**{k}**: {v}  " for k, v in fields if v]
+        if info.get("change"):
+            was = f" (was {info['old_version']})" if info.get("old_version") else ""
+            lines.append(f"**preview**: {info['change']}{was}  ")
+        if info.get("latest"):
+            lines.append(f"**newest available**: {info['latest']}  ")
         if info.get("size"):
             lines.append(f"**size**: {info['size'] / 1e6:.2f} MB  ")
         for key, title in (("depends", "Depends on"), ("whoneeds", "Needed by")):
@@ -461,7 +542,7 @@ class Explorer(pn.viewable.Viewer):
         self._html.filename = f"{self._export_name}.html"
         buffer = io.StringIO()
         if self.view is not None:
-            standalone(
+            page = standalone(
                 self.view,
                 title=f"Dependencies of {self._export_name}",
                 layout=self._graph.layout,
@@ -469,7 +550,9 @@ class Explorer(pn.viewable.Viewer):
                 highlight=self._graph.highlight,
                 show_versions=self._graph.show_versions,
                 selected=self._graph.selected,
-            ).save(buffer, title=self._export_name, resources="cdn")
+            )
+            with pn.config.set(raw_css=[STANDALONE_CSS]):
+                page.save(buffer, title=self._export_name, resources="cdn")
         buffer.seek(0)
         return buffer
 

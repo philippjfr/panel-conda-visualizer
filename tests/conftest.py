@@ -166,3 +166,31 @@ def conda_lock(tmp_path) -> Path:
     path = tmp_path / "conda-lock.yml"
     path.write_text(CONDA_LOCK)
     return path
+
+
+def make_channel(root: Path, packages: dict[str, dict[str, tuple[str, list[str]]]]) -> str:
+    """Write a local conda channel and return its URL.
+
+    ``packages`` maps name -> {version: (build, depends)}; everything is linux-64.
+    """
+    records = {
+        f"{name}-{version}-{build}.conda": {
+            "name": name,
+            "version": version,
+            "build": build,
+            "build_number": 0,
+            "depends": depends,
+            "subdir": "linux-64",
+            "size": 1,
+        }
+        for name, versions in packages.items()
+        for version, (build, depends) in versions.items()
+    }
+    for subdir, data in (
+        ("linux-64", {"info": {"subdir": "linux-64"}, "packages": {}, "packages.conda": records}),
+        ("noarch", {"info": {"subdir": "noarch"}}),
+    ):
+        folder = root / "channel" / subdir
+        folder.mkdir(parents=True)
+        (folder / "repodata.json").write_text(json.dumps(data))
+    return (root / "channel").as_uri()

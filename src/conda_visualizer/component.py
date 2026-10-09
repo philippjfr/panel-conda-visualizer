@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import param
 from panel.custom import JSComponent
 
-from .graph import DependencyGraph
+if TYPE_CHECKING:
+    # Kept out of the runtime import so the isolated wheel build, which only has
+    # Panel installed, can import this module to compile the bundle.
+    from .graph import DependencyGraph
+
+DIST = Path(__file__).parent / "dist"
 
 LAYOUTS = ["dagre", "elk", "fcose", "breadthfirst", "cose", "concentric", "circle", "grid"]
 
@@ -22,7 +28,12 @@ class CytoscapeGraph(JSComponent):
     ``selected`` and highlights what it depends on and what depends on it.
     """
 
-    elements = param.Dict(default={"nodes": [], "edges": []}, doc="Nodes and edges to render.")
+    elements = param.Dict(
+        default={"nodes": [], "edges": []},
+        doc="""Nodes and edges to render. Setting ``"keep_view": True`` in the dictionary
+        keeps the zoom and re-centers the selected node instead of fitting the whole graph;
+        it travels with the data so it cannot arrive after the update it applies to.""",
+    )
 
     layout = param.Selector(default="dagre", objects=LAYOUTS, doc="Cytoscape layout algorithm.")
 
@@ -40,6 +51,11 @@ class CytoscapeGraph(JSComponent):
 
     show_versions = param.Boolean(default=True, doc="Show the version below node labels.")
 
+    show_latest = param.Boolean(
+        default=True,
+        doc="Show the newest available version of outdated packages (nodes with ``latest``).",
+    )
+
     dark_theme = param.Boolean(default=False, doc="Use the dark color palette.")
 
     search = param.String(default="", doc="Highlight packages whose name contains this text.")
@@ -53,6 +69,10 @@ class CytoscapeGraph(JSComponent):
     )
 
     filename = param.String(default="graph", doc="Base name for PNG/SVG downloads.")
+
+    # Built by ``panel compile conda_visualizer``; without it the raw ESM and the
+    # importmap below are used, which needs network access to esm.sh.
+    _bundle = DIST / "conda-visualizer.bundle.js"
 
     _esm = Path(__file__).parent / "graph.js"
 

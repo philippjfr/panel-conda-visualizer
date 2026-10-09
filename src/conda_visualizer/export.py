@@ -9,6 +9,7 @@ import panel as pn
 
 from .component import CytoscapeGraph
 from .graph import DependencyGraph
+from .theme import FONTS_CSS, STANDALONE_CSS
 
 
 def summary(graph: DependencyGraph) -> str:
@@ -42,12 +43,15 @@ def export_html(
     """Write ``graph`` to a self-contained HTML file.
 
     Search, highlighting, isolation, layout switching and PNG/SVG export all
-    run client-side. Cytoscape is always loaded from esm.sh; ``inline=True``
-    additionally embeds the Bokeh/Panel JS so only that CDN is needed.
+    run client-side. Cytoscape is embedded from the compiled bundle shipped in
+    the wheel; ``inline=True`` also embeds the Bokeh/Panel JS. The brand fonts
+    come from Google Fonts and fall back to Arial offline. An uncompiled source
+    checkout falls back to esm.sh.
     """
     path = Path(path)
     title = title or f"Dependencies of {Path(graph.source).name or 'environment'}"
-    standalone(graph, title, **params).save(
-        path, title=title, resources="inline" if inline else "cdn", embed=False
-    )
+    with pn.config.set(css_files=[FONTS_CSS], raw_css=[STANDALONE_CSS]):
+        standalone(graph, title, **params).save(
+            path, title=title, resources="inline" if inline else "cdn", embed=False
+        )
     return path

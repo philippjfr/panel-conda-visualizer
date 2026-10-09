@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs", "panel>=1.8.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "conda-visualizer"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Interactive dependency graphs for conda environments, lockfiles and DOT files"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,8 +25,22 @@ solve = ["py-rattler>=0.20"]
 [project.scripts]
 conda-visualizer = "conda_visualizer.cli:main"
 
+[tool.hatch.version]
+source = "vcs"
+raw-options = { version_scheme = "no-guess-dev" }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/conda_visualizer/_version.py"
+
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/conda_visualizer"]
+artifacts = ["src/conda_visualizer/dist/**"]
+
+[tool.hatch.build.targets.sdist]
+artifacts = ["src/conda_visualizer/dist/**"]
 
 
 [tool.pixi.workspace]
@@ -59,11 +73,28 @@ test = "pytest tests -m 'not ui'"
 test-ui = "pytest tests -m ui"
 lint = "ruff check src tests && ruff format --check src tests"
 
+[tool.pixi.feature.compile.dependencies]
+nodejs = ">=18"
+esbuild = "*"
+
+[tool.pixi.feature.compile.tasks]
+compile = { cmd = "panel compile conda_visualizer", env = { PYTHONPATH = "./src" } }
+
+[tool.pixi.feature.build.dependencies]
+python-build = "*"
+twine = "*"
+hatch-vcs = "*"
+
+[tool.pixi.feature.build.tasks]
+build-wheel = "python -m build ."
+check-wheel = "twine check dist/*"
+
 [tool.pixi.tasks]
 serve = "panel serve src/conda_visualizer/app.py --dev --show"
 
 [tool.pixi.environments]
-default = { features = ["test"], solve-group = "default" }
+default = { features = ["test", "compile"], solve-group = "default" }
+build = { features = ["build", "compile"], solve-group = "default" }
 
 [tool.pytest.ini_options]
 markers = ["ui: Playwright browser tests"]

@@ -6,3 +6,5 @@ __pycache__/
 dist/
 environment.yaml
 manual_tests/
+src/conda_visualizer/dist/
+src/conda_visualizer/_version.py

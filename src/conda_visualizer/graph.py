@@ -25,9 +25,17 @@ NODE_FIELDS = (
     "subdir",
     "kind",
     "requested",
+    "requested_spec",
     "size",
     "license",
     "url",
+    # Set by ``updates``: newest available version and the effect of a what-if change.
+    "latest",
+    "outdated",
+    "change",
+    "old_version",
+    "old_build",
+    "target",
 )
 
 #: Node kinds. ``virtual`` and ``missing`` are created implicitly for
@@ -204,6 +212,14 @@ class DependencyGraph:
             nodes = set(self.graph.nodes)
         return nodes - hide
 
+    def copy(self) -> DependencyGraph:
+        return DependencyGraph(
+            graph=self.graph.copy(),
+            source=self.source,
+            platform=self.platform,
+            warnings=list(self.warnings),
+        )
+
     def subgraph(self, nodes: Iterable[str]) -> DependencyGraph:
         return DependencyGraph(
             graph=self.graph.subgraph(nodes).copy(),
@@ -289,21 +305,26 @@ class DependencyGraph:
 
     def records(self) -> list[dict]:
         """One row per package, for tabular display."""
+        nodes = sorted(self.graph.nodes(data=True))
+        # Columns that only exist once versions were looked up or a change was previewed.
+        optional = [
+            column for column in ("latest", "change") if any(column in data for _, data in nodes)
+        ]
         rows = []
-        for name, data in sorted(self.graph.nodes(data=True)):
-            rows.append(
-                {
-                    "name": name,
-                    "version": data.get("version", ""),
-                    "build": data.get("build", ""),
-                    "channel": data.get("channel", ""),
-                    "kind": data.get("kind", ""),
-                    "requested": bool(data.get("requested", False)),
-                    "depends": self.graph.out_degree(name),
-                    "dependents": self.graph.in_degree(name),
-                    "size": data.get("size"),
-                }
-            )
+        for name, data in nodes:
+            row = {
+                "name": name,
+                "version": data.get("version", ""),
+                "build": data.get("build", ""),
+                "channel": data.get("channel", ""),
+                "kind": data.get("kind", ""),
+                "requested": bool(data.get("requested", False)),
+                "depends": self.graph.out_degree(name),
+                "dependents": self.graph.in_degree(name),
+                "size": data.get("size"),
+            }
+            row.update({column: data.get(column, "") for column in optional})
+            rows.append(row)
         return rows
 
     # Export ---------------------------------------------------------------

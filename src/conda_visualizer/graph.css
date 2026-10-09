@@ -15,7 +15,7 @@
   align-items: center;
   justify-content: center;
   color: var(--cy-muted);
-  font: 0.95rem system-ui, sans-serif;
+  font: 0.95rem Inter, Arial, sans-serif;
   pointer-events: none;
 }
 
@@ -29,12 +29,14 @@
   border-radius: 6px;
   background: var(--cy-panel);
   color: var(--cy-text);
-  font: 12px/1.5 system-ui, sans-serif;
+  font: 12px/1.5 Inter, Arial, sans-serif;
   box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
   pointer-events: none;
 }
 
-.cy-tooltip .cy-tt-title {
+.cy-tooltip .cy-tt-title,
+.cy-card .cy-tt-title {
+  font-family: "Space Grotesk", Arial, sans-serif;
   font-weight: 600;
   margin-bottom: 2px;
   overflow-wrap: anywhere;
@@ -71,7 +73,7 @@
   border-bottom: 1px solid var(--cy-border);
   background: var(--cy-bg);
   color: var(--cy-text);
-  font: 13px system-ui, sans-serif;
+  font: 13px Inter, Arial, sans-serif;
   overflow-x: auto;
 }
 
@@ -152,7 +154,7 @@
   border-radius: 6px;
   background: var(--cy-panel);
   color: var(--cy-text);
-  font: 12px/1.5 system-ui, sans-serif;
+  font: 12px/1.5 Inter, Arial, sans-serif;
   box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
 }
 
@@ -172,7 +174,50 @@
 }
 
 .cy-card-list a {
-  color: var(--cy-text);
-  text-decoration: underline dotted;
+  color: var(--cy-link);
   cursor: pointer;
+}
+
+.cy-card-list a:hover {
+  text-decoration: underline;
+}
+
+.cy-card-note {
+  color: var(--cy-text);
+  font-weight: 600;
+}
+
+.cy-legend {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 5;
+  display: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 12px;
+  max-width: 60%;
+  box-sizing: border-box;
+  padding: 5px 9px;
+  border: 1px solid var(--cy-border);
+  border-radius: 6px;
+  background: var(--cy-panel);
+  color: var(--cy-text);
+  font: 11px/1.4 Inter, Arial, sans-serif;
+  pointer-events: none;
+}
+
+.cy-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.cy-legend i {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  box-sizing: border-box;
+  border-radius: 3px;
 }

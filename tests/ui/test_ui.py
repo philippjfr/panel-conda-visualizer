@@ -11,6 +11,7 @@ from conda_visualizer.app import Explorer
 from conda_visualizer.component import CytoscapeGraph
 from conda_visualizer.export import export_html
 from conda_visualizer.sources import load
+from tests.conftest import make_channel
 
 pytestmark = pytest.mark.ui
 
@@ -206,3 +207,200 @@ def test_explorer_html_download_is_self_contained(page, prefix, monkeypatch, tmp
     wait_until(lambda: exported.locator(".cy-container").count() == 1, exported, timeout=15000)
     expect(exported.locator(".cy-toolbar")).to_have_css("display", "flex")
     assert failed == []
+
+
+CHANGED = {
+    "nodes": [
+        {"id": "app", "version": "1.0", "latest": "2.0", "outdated": True, "in": 0, "out": 1},
+        {
+            "id": "lib",
+            "version": "2.0",
+            "old_version": "1.5",
+            "change": "upgrade",
+            "target": True,
+            "in": 1,
+            "out": 1,
+        },
+        {"id": "helper", "version": "1.0", "change": "add", "in": 1, "out": 0},
+        {"id": "shim", "version": "1.0", "change": "remove", "in": 0, "out": 0},
+        {"id": "other", "version": "3.0", "in": 0, "out": 0},
+    ],
+    "edges": [
+        {"source": "app", "target": "lib", "spec": "lib"},
+        {"source": "lib", "target": "helper", "spec": "helper"},
+    ],
+}
+
+
+def test_changes_and_newer_versions_are_drawn(page):
+    graph = CytoscapeGraph(elements=CHANGED, height=500, width=900)
+    serve_component(page, graph)
+    wait_for_nodes(page, 5)
+    caption = lambda n: cy(page, f"cy.$id('{n}').data('caption')")  # noqa: E731
+    assert caption("lib") == "lib\n1.5 → 2.0"
+    assert caption("helper") == "helper\n+ 1.0"
+    assert caption("shim") == "shim\n1.0 removed"
+    assert caption("app") == "app\n1.0 ↑ 2.0"
+    assert caption("other") == "other\n3.0"
+
+    # Without a selection everything a change does not touch recedes.
+    wait_until(
+        lambda: sorted(cy(page, "cy.nodes('.faded').map(n => n.id())")) == ["app", "other"], page
+    )
+    expect(page.locator(".cy-legend")).to_contain_text("Upgraded")
+    expect(page.locator(".cy-legend")).to_contain_text("Added")
+    expect(page.locator(".cy-legend")).to_contain_text("Removed")
+    expect(page.locator(".cy-legend")).to_contain_text("Newer version available")
+
+    cy(page, "(cy.$id('lib').emit({type: 'mouseover', renderedPosition: {x: 50, y: 50}}), null)")
+    expect(page.locator(".cy-tooltip")).to_contain_text("was")
+
+    graph.show_latest = False
+    wait_until(lambda: caption("app") == "app\n1.0", page)
+    expect(page.locator(".cy-legend")).not_to_contain_text("Newer version available")
+
+    graph.show_versions = False
+    wait_until(lambda: caption("lib") == "lib", page)
+
+
+def test_plain_graph_has_no_legend(page):
+    graph = CytoscapeGraph(elements=ELEMENTS, height=500, width=800)
+    serve_component(page, graph)
+    wait_for_nodes(page, 5)
+    expect(page.locator(".cy-legend")).to_be_hidden()
+    assert cy(page, "cy.nodes('.faded').length") == 0
+
+
+def test_explorer_previews_a_version_change(page, prefix, tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "discovered_environments", lambda: {})
+    channel = make_channel(
+        tmp_path,
+        {
+            "app": {"1.0": ("py_0", ["lib >=1", "python >=3.10", "__glibc >=2.17"])},
+            "tool": {"2.0": ("h0", ["lib", "ghost"])},
+            "ghost": {"1.0": ("h", [])},
+            "lib": {"1.5": ("h1", ["base"]), "2.0": ("h1", ["base >=1", "helper"])},
+            "helper": {"1.0": ("h", [])},
+            "base": {"0.1": ("h2", []), "1.0": ("h2", [])},
+            "python": {"3.12.0": ("h3", ["base"])},
+        },
+    )
+    explorer = Explorer(source=str(prefix))
+    explorer._updates.channels = [channel]
+    serve_component(page, explorer)
+    wait_for_nodes(page, len(explorer.view))
+
+    page.get_by_role("button", name="Check latest versions").click()
+    wait_until(lambda: explorer._updates.availability is not None, page)
+    wait_until(lambda: cy(page, "cy.$id('lib').data('latest')") == "2.0", page)
+    assert "outdated" in explorer._stats.object
+
+    explorer._updates.package = "lib"
+    page.get_by_role("button", name="Preview change").click()
+    wait_until(lambda: explorer._updates.plan is not None, page)
+    wait_until(lambda: cy(page, "cy.$id('lib').data('change')") == "upgrade", page)
+    assert cy(page, "cy.$id('helper').data('change')") == "add"
+    assert cy(page, "cy.$id('base').data('change')") == "upgrade"
+    expect(page.locator(".cy-legend")).to_contain_text("Upgraded")
+
+    explorer._updates.table.value  # noqa: B018 - populated by the preview
+    assert set(explorer._updates.table.value["name"]) >= {"lib", "base", "helper"}
+
+    page.get_by_role("button", name="Clear preview").click()
+    wait_until(lambda: cy(page, "cy.$id('lib').data('change')") is None, page)
+    assert explorer._updates.plan is None
+
+
+def test_explorer_keeps_selection_centered_across_updates(page, prefix, tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "discovered_environments", lambda: {})
+    channel = make_channel(
+        tmp_path,
+        {
+            "app": {"1.0": ("py_0", ["lib >=1", "python >=3.10", "__glibc >=2.17"])},
+            "tool": {"2.0": ("h0", ["lib", "ghost"])},
+            "ghost": {"1.0": ("h", [])},
+            "lib": {"1.5": ("h1", ["base"]), "2.0": ("h1", ["base >=1", "helper"])},
+            "helper": {"1.0": ("h", [])},
+            "base": {"0.1": ("h2", []), "1.0": ("h2", [])},
+            "python": {"3.12.0": ("h3", ["base"])},
+        },
+    )
+    explorer = Explorer(source=str(prefix))
+    explorer._updates.channels = [channel]
+    # Keep every package visible so the preview is a small edit of the graph.
+    explorer.changes_only = False
+    serve_component(page, explorer)
+    wait_for_nodes(page, len(explorer.view))
+
+    def offset():
+        """Distance from the selected node to the middle of the graph area, and the zoom."""
+        return cy(
+            page,
+            """(() => {
+              const n = cy.$id('lib').renderedPosition();
+              return {
+                dx: Math.abs(n.x - cy.width() / 2),
+                dy: Math.abs(n.y - cy.height() / 2),
+                zoom: cy.zoom(),
+              };
+            })()""",
+        )
+
+    # Select a package, then zoom and pan away from the automatic fit.
+    explorer._graph.selected = "lib"
+    wait_until(lambda: cy(page, "cy.$id('lib').selected()"), page)
+    cy(page, "(cy.zoom({level: 1.2, renderedPosition: {x: 100, y: 100}}), null)")
+    before = offset()
+    assert before["dx"] > 20 or before["dy"] > 20
+
+    page.get_by_role("button", name="Check latest versions").click()
+    wait_until(lambda: cy(page, "cy.$id('lib').data('latest')") == "2.0", page)
+    after = offset()
+    assert after["dx"] < 2 and after["dy"] < 2
+    assert after["zoom"] == pytest.approx(before["zoom"])
+
+    explorer._updates.package = "lib"
+    page.get_by_role("button", name="Preview change").click()
+    wait_until(lambda: cy(page, "cy.$id('lib').data('change')") == "upgrade", page)
+    after = offset()
+    assert after["dx"] < 2 and after["dy"] < 2
+    assert after["zoom"] == pytest.approx(before["zoom"])
+
+
+def test_preview_shows_only_changed_packages_by_default(page, prefix, tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "discovered_environments", lambda: {})
+    channel = make_channel(
+        tmp_path,
+        {
+            "app": {"1.0": ("py_0", ["lib >=1", "python >=3.10", "__glibc >=2.17"])},
+            "tool": {"2.0": ("h0", ["lib", "ghost"])},
+            "ghost": {"1.0": ("h", [])},
+            "lib": {"1.5": ("h1", ["base"]), "2.0": ("h1", ["base >=1", "helper"])},
+            "helper": {"1.0": ("h", [])},
+            "base": {"0.1": ("h2", []), "1.0": ("h2", [])},
+            "python": {"3.12.0": ("h3", ["base"])},
+        },
+    )
+    explorer = Explorer(source=str(prefix))
+    explorer._updates.channels = [channel]
+    serve_component(page, explorer)
+    total = len(explorer.view)
+    wait_for_nodes(page, total)
+    expect(page.get_by_text("Show only changed packages")).to_be_hidden()
+
+    page.get_by_role("button", name="Check latest versions").click()
+    wait_until(lambda: explorer._updates.availability is not None, page)
+    expect(page.get_by_text("click a package in the graph")).to_be_visible()
+
+    explorer._updates.package = "lib"
+    page.get_by_role("button", name="Preview change").click()
+    wait_until(lambda: explorer._updates.plan is not None, page)
+    # lib, base, helper change; lib's dependencies add no further nodes.
+    # Changed: lib and base (upgrade), helper and ghost (now installable), x and y (unneeded).
+    expected = ["base", "ghost", "helper", "lib", "x", "y"]
+    wait_until(lambda: sorted(cy(page, "cy.nodes().map(n => n.id())")) == expected, page)
+    expect(page.get_by_text("Show only changed packages")).to_be_visible()
+
+    explorer.changes_only = False
+    wait_for_nodes(page, total + 1)
+    assert cy(page, "cy.nodes('[change]').length") >= 3

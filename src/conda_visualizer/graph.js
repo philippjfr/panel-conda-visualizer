@@ -10,18 +10,26 @@ for (const ext of [dagre, elk, fcose, svg]) {
   try { cytoscape.use(ext) } catch (e) {}
 }
 
+// Anaconda 2026 brand palette (see theme.py). Yellow is deliberately unused:
+// the brand reserves it for under 5% of a layout and never for UI.
 const PALETTES = {
   light: {
-    bg: "#ffffff", node: "#f4f6f9", text: "#1f2933", muted: "#7b8794", edge: "#b8c2cc",
-    conda: "#3b6ea8", pypi: "#c46a1b", virtual: "#9aa5b1", missing: "#c62828", node_kind: "#3b6ea8",
-    depends: "#2e7d32", whoneeds: "#8e24aa", selected: "#f59e0b", match: "#0288d1",
-    panel: "rgba(255,255,255,0.96)",
+    bg: "#FFFFFF", node: "#F7F8F9", text: "#0C0C0C", muted: "#6A6D74", edge: "#C9CCD5",
+    conda: "#594AC8", pypi: "#898D96", virtual: "#A6ABB7", missing: "#D00100", node_kind: "#594AC8",
+    depends: "#068F35", whoneeds: "#6D5BF6", selected: "#1F1945", match: "#08CA4A",
+    panel: "rgba(255,255,255,0.96)", link: "#594AC8",
+    up_bg: "#DEFFAA", up: "#068F35", down_bg: "#CCC6FF", down: "#443998",
+    add_bg: "#9CF215", add: "#056B29", rebuild_bg: "#E4E6EB", rebuild: "#6A6D74", remove: "#898D96",
+    legend_bg: "#FFFFFF",
   },
   dark: {
-    bg: "#121212", node: "#1f2630", text: "#e4e7eb", muted: "#9aa5b1", edge: "#4b5563",
-    conda: "#64a0e8", pypi: "#f0a35e", virtual: "#7b8794", missing: "#ef5350", node_kind: "#64a0e8",
-    depends: "#66bb6a", whoneeds: "#ce93d8", selected: "#fbbf24", match: "#4fc3f7",
-    panel: "rgba(30,34,40,0.96)",
+    bg: "#1F1945", node: "#2E2667", text: "#FFFFFF", muted: "#B8BDC8", edge: "#594AC8",
+    conda: "#A296FE", pypi: "#A6ABB7", virtual: "#898D96", missing: "#F2504F", node_kind: "#A296FE",
+    depends: "#08CA4A", whoneeds: "#A296FE", selected: "#FFFFFF", match: "#9CF215",
+    panel: "rgba(46,38,103,0.96)", link: "#A296FE",
+    up_bg: "#035420", up: "#5FE419", down_bg: "#443998", down: "#B1A6FF",
+    add_bg: "#056B29", add: "#9CF215", rebuild_bg: "#4B4D52", rebuild: "#B8BDC8", remove: "#898D96",
+    legend_bg: "#2E2667",
   },
 };
 
@@ -32,27 +40,41 @@ const HIGHLIGHTS = {
 };
 const DIRECTIONS = { TB: "DOWN", LR: "RIGHT", BT: "UP", RL: "LEFT" };
 
-const FONT = "11px system-ui, sans-serif";
+const FAMILY = 'Inter, Arial, sans-serif';
+const FONT = `11px ${FAMILY}`;
 const measure = document.createElement("canvas").getContext("2d");
 measure.font = FONT;
 
-function nodeWidth(data, showVersions) {
-  const label = measure.measureText(data.label || data.id).width;
-  const version = showVersions && data.version ? measure.measureText(data.version).width : 0;
-  return Math.ceil(Math.max(label, version)) + 18;
+// Second label line: what a what-if plan does to the version, else the newest one.
+function versionText(d, showLatest) {
+  if (d.change === "add") return `+ ${d.version}`;
+  if (d.change === "remove") return `${d.version} removed`;
+  if (d.change === "rebuild") return `${d.version} rebuilt`;
+  if (d.change) return `${d.old_version} → ${d.version}`;
+  if (showLatest && d.outdated && d.latest) return `${d.version} ↑ ${d.latest}`;
+  return d.version || "";
 }
 
-function toElements(elements, showVersions) {
-  const nodes = (elements.nodes || []).map((n) => ({
-    group: "nodes",
-    data: {
-      ...n,
-      caption: showVersions && n.version ? `${n.label || n.id}\n${n.version}` : (n.label || n.id),
-      w: nodeWidth(n, showVersions),
-      h: showVersions && n.version ? 34 : 22,
-      leaf: n.in === 0 ? 1 : 0,
-    },
-  }));
+function nodeWidth(label, version) {
+  const widest = Math.max(measure.measureText(label).width, version ? measure.measureText(version).width : 0);
+  return Math.ceil(widest) + 18;
+}
+
+function toElements(elements, showVersions, showLatest) {
+  const nodes = (elements.nodes || []).map((n) => {
+    const label = n.label || n.id;
+    const version = showVersions ? versionText(n, showLatest) : "";
+    return {
+      group: "nodes",
+      data: {
+        ...n,
+        caption: version ? `${label}\n${version}` : label,
+        w: nodeWidth(label, version),
+        h: version ? 34 : 22,
+        leaf: n.in === 0 ? 1 : 0,
+      },
+    };
+  });
   const ids = new Set(nodes.map((n) => n.data.id));
   const edges = (elements.edges || [])
     .filter((e) => ids.has(e.source) && ids.has(e.target))
@@ -66,7 +88,7 @@ function stylesheet(p) {
       shape: "round-rectangle", width: "data(w)", height: "data(h)",
       "background-color": p.node, "border-width": 1.5, "border-color": p.conda,
       label: "data(caption)", "text-wrap": "wrap", "text-valign": "center", "text-halign": "center",
-      "font-family": "system-ui, sans-serif", "font-size": 11, color: p.text,
+      "font-family": FAMILY, "font-size": 11, color: p.text,
       "min-zoomed-font-size": 7,
     }},
     { selector: 'node[kind = "pypi"]', style: { "border-color": p.pypi } },
@@ -75,6 +97,14 @@ function stylesheet(p) {
     { selector: 'node[kind = "missing"]', style: { "border-style": "dashed", "border-color": p.missing, color: p.missing } },
     { selector: "node[?requested]", style: { "border-width": 3, "font-weight": "bold" } },
     { selector: "node[leaf = 1]", style: { "background-color": p.bg } },
+    // A newer version exists: double border (Cytoscape needs a width of 3 or more).
+    { selector: "node[?outdated]", style: { "border-style": "double", "border-width": 4 } },
+    { selector: 'node[change = "rebuild"]', style: { "background-color": p.rebuild_bg, "border-color": p.rebuild } },
+    { selector: 'node[change = "upgrade"]', style: { "background-color": p.up_bg, "border-color": p.up, "border-width": 3 } },
+    { selector: 'node[change = "downgrade"]', style: { "background-color": p.down_bg, "border-color": p.down, "border-width": 3 } },
+    { selector: 'node[change = "add"]', style: { "background-color": p.add_bg, "border-color": p.add, "border-width": 3 } },
+    { selector: 'node[change = "remove"]', style: { "border-style": "dashed", "border-color": p.remove, color: p.muted, "background-opacity": 0.4 } },
+    { selector: "node[?target]", style: { "border-width": 5, "font-weight": "bold" } },
     { selector: "edge", style: {
       width: 1, "line-color": p.edge, "target-arrow-color": p.edge, "target-arrow-shape": "triangle",
       "arrow-scale": 0.7, "curve-style": "straight", opacity: 0.7,
@@ -98,8 +128,8 @@ function stylesheet(p) {
   ];
 }
 
-function layoutOptions(model, eles) {
-  const common = { animate: false, fit: true, padding: 30 };
+function layoutOptions(model, eles, fit = true) {
+  const common = { animate: false, fit, padding: 30 };
   switch (model.layout) {
     case "dagre":
       return { ...common, name: "dagre", rankDir: model.rank_dir, nodeSep: 14, rankSep: 70, edgeSep: 6 };
@@ -174,7 +204,8 @@ export function render({ model, el }) {
     h("div", { className: "cy-search-wrap" }, search, count), names,
     layoutSel, rankSel, hlSel, isolateBtn, fitBtn, pngBtn, svgBtn);
 
-  el.append(container, toolbar, card, tooltip, empty);
+  const legend = h("div", { className: "cy-legend" });
+  el.append(container, toolbar, card, tooltip, empty, legend);
 
   const palette = () => PALETTES[model.dark_theme ? "dark" : "light"];
 
@@ -189,16 +220,19 @@ export function render({ model, el }) {
   // Exposed for Playwright tests and console debugging.
   container._cy = cy;
 
+  // True once the viewport is user-controlled or pinned to a selection; stops auto-fitting.
+  let touched = false;
   let isolated = false;
   let matches = [];
   let matchIndex = -1;
 
   function applyTheme() {
     const p = palette();
-    for (const [k, v] of Object.entries({ bg: p.bg, text: p.text, muted: p.muted, panel: p.panel, border: p.edge, accent: p.selected })) {
+    for (const [k, v] of Object.entries({ bg: p.bg, text: p.text, muted: p.muted, panel: p.panel, border: p.edge, accent: p.selected, link: p.link })) {
       el.style.setProperty(`--cy-${k}`, v);
     }
     cy.style(stylesheet(p));
+    renderLegend();
   }
 
   function applyChrome() {
@@ -207,11 +241,11 @@ export function render({ model, el }) {
     if (!model.show_details) card.style.display = "none";
   }
 
-  function runLayout() {
+  function runLayout(fit = true) {
     const eles = cy.elements().not(".hidden");
     if (!eles.nodes().length) return;
     const t0 = performance.now();
-    eles.layout(layoutOptions(model, eles)).run();
+    eles.layout(layoutOptions(model, eles, fit)).run();
     el.dataset.layoutMs = Math.round(performance.now() - t0);
   }
 
@@ -241,8 +275,13 @@ export function render({ model, el }) {
       return `<div class="cy-card-list"><span>${label} (${ids.length})</span>${shown}${ids.length > 40 ? " …" : ""}</div>`;
     };
     const meta = [d.version, d.build, d.channel].filter(Boolean).map(esc).join(" · ");
+    const notes = [
+      d.change && `${esc(d.change)}${d.old_version && d.old_version !== d.version ? `: ${esc(d.old_version)} → ${esc(d.version)}` : ""}`,
+      d.outdated && d.latest && `newest available: ${esc(d.latest)}`,
+    ].filter(Boolean).join(" · ");
     card.innerHTML = `<div class="cy-tt-title">${esc(d.id)}${d.requested ? ' <span class="cy-tt-tag">requested</span>' : ""}</div>` +
       (meta ? `<div class="cy-card-meta">${meta}</div>` : "") +
+      (notes ? `<div class="cy-card-meta cy-card-note">${notes}</div>` : "") +
       list(node.outgoers().nodes(), "Depends on") + list(node.incomers().nodes(), "Needed by");
     card.style.display = "block";
   }
@@ -259,13 +298,21 @@ export function render({ model, el }) {
       cy.elements().removeClass("faded depends whoneeds focus");
       if (!valid) {
         cy.$(":selected").unselect();
-        if (matches.length) cy.elements().not(cy.collection(matches)).addClass("faded");
+        const changed = cy.nodes("[change]");
+        if (matches.length) {
+          cy.elements().not(cy.collection(matches)).addClass("faded");
+        } else if (changed.length) {
+          cy.elements().not(changed.union(changed.connectedEdges())).addClass("faded");
+        }
         return;
       }
       const rel = relatives(node);
       rel.depends.addClass("depends");
       rel.whoneeds.addClass("whoneeds");
-      const keep = node.union(rel.depends).union(rel.whoneeds);
+      let keep = node.union(rel.depends).union(rel.whoneeds);
+      // A previewed change stays visible while something is selected.
+      const changed = cy.nodes("[change]");
+      if (changed.length) keep = keep.union(changed).union(changed.edgesWith(changed));
       cy.elements().not(keep).addClass("faded");
       node.addClass("focus");
       if (!node.selected()) node.select();
@@ -320,25 +367,58 @@ export function render({ model, el }) {
     model.selected = matches[matchIndex].id();
   }
 
-  function setElements() {
-    const elements = toElements(model.elements, model.show_versions);
+  // With ``keepView`` and a similar set of nodes the zoom stays and the selected package
+  // is re-centered, so refreshing the data does not make the package under study jump away.
+  function setElements(keepView = false) {
+    const elements = toElements(model.elements, model.show_versions, model.show_latest);
     isolated = false;
     isolateBtn.classList.remove("active");
     isolateBtn.textContent = "Isolate";
+    const before = new Set(cy.nodes().map((n) => n.id()));
     cy.batch(() => {
       cy.elements().remove();
       cy.add(elements);
     });
+    // A small edit of what was shown keeps the zoom; a different graph is fitted.
+    const shared = cy.nodes().filter((n) => before.has(n.id())).length;
+    const similar = shared / (before.size + cy.nodes().length - shared || 1) >= 0.8;
     names.replaceChildren(...cy.nodes().map((n) => h("option", { value: n.id() })).sort((a, b) => a.value.localeCompare(b.value)));
     empty.style.display = cy.nodes().length ? "none" : "flex";
     el.dataset.nodes = cy.nodes().length;
     el.dataset.edges = cy.edges().length;
-    runLayout();
+    renderLegend();
+    const anchor = keepView && model.selected ? cy.getElementById(model.selected) : null;
+    const keep = similar && anchor && !anchor.empty();
+    runLayout(!keep);
+    if (keep) cy.center(anchor);
+    touched = Boolean(keep);
     if (model.selected && cy.getElementById(model.selected).empty()) {
       model.selected = null;
     }
     runSearch();
     highlight();
+  }
+
+  // Only explains what the current data uses, so plain graphs show no legend.
+  function renderLegend() {
+    const p = palette();
+    const items = [];
+    const seen = new Set(cy.nodes().map((n) => n.data("change")).filter(Boolean));
+    const swatch = (bg, border, style = "solid") =>
+      `<i style="background:${bg};border:2px ${style} ${border}"></i>`;
+    const kinds = [
+      ["upgrade", "Upgraded", swatch(p.up_bg, p.up)],
+      ["downgrade", "Downgraded", swatch(p.down_bg, p.down)],
+      ["add", "Added", swatch(p.add_bg, p.add)],
+      ["remove", "Removed", swatch("transparent", p.remove, "dashed")],
+      ["rebuild", "Rebuilt", swatch(p.rebuild_bg, p.rebuild)],
+    ];
+    for (const [key, label, icon] of kinds) if (seen.has(key)) items.push(`${icon}${label}`);
+    if (model.show_latest && cy.nodes("[?outdated]").length) {
+      items.push(`${swatch("transparent", p.conda, "double")}Newer version available (↑)`);
+    }
+    legend.innerHTML = items.map((i) => `<span>${i}</span>`).join("");
+    legend.style.display = items.length ? "flex" : "none";
   }
 
   function showTooltip(evt, html) {
@@ -355,7 +435,8 @@ export function render({ model, el }) {
   cy.on("mouseover", "node", (evt) => {
     const d = evt.target.data();
     const rows = [
-      ["version", d.version], ["build", d.build], ["channel", d.channel], ["kind", d.kind],
+      ["version", d.version], ["latest", d.latest], ["was", d.old_version], ["change", d.change],
+      ["build", d.build], ["channel", d.channel], ["kind", d.kind],
       ["depends", d.out], ["needed by", d.in],
     ].filter(([, v]) => v !== undefined && v !== "");
     showTooltip(evt, `<div class="cy-tt-title">${esc(d.id)}${d.requested ? ' <span class="cy-tt-tag">requested</span>' : ""}</div>` +
@@ -407,8 +488,8 @@ export function render({ model, el }) {
   pngBtn.addEventListener("click", () => exportImage("png", model.filename));
   svgBtn.addEventListener("click", () => exportImage("svg", model.filename));
 
-  model.on("elements", setElements);
-  model.on("show_versions", setElements);
+  model.on("elements", () => setElements(Boolean(model.elements.keep_view)));
+  model.on(["show_versions", "show_latest"], () => setElements(true));
   model.on("layout", () => { layoutSel.value = model.layout; runLayout(); });
   model.on("rank_dir", () => { rankSel.value = model.rank_dir; runLayout(); });
   model.on("selected", () => highlight(true));
@@ -425,9 +506,7 @@ export function render({ model, el }) {
 
   // Panel may size the component after render; keep fitting until the user
   // takes control of the viewport.
-  let touched = false;
   cy.on("dragpan scrollzoom pinchzoom", () => { touched = true; });
-  model.on("elements", () => { touched = false; });
   const observer = new ResizeObserver(() => {
     if (!container.clientWidth || !container.clientHeight) return;
     cy.resize();
@@ -440,4 +519,7 @@ export function render({ model, el }) {
   applyChrome();
   search.value = model.search || "";
   setElements();
+
+  // Node widths are measured with Inter, so lay out again once it has loaded.
+  document.fonts?.load(FONT).then((faces) => { if (faces.length) setElements(); });
 }

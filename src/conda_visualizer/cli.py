@@ -1,4 +1,4 @@
-"""Command line entry point: ``conda-visualizer serve|convert|leaves|cycles|depends|whoneeds``."""
+"""Command line entry point: ``conda-visualizer serve|convert|outdated|plan|leaves|...``."""
 
 from __future__ import annotations
 
@@ -13,6 +13,13 @@ from .app import create_app
 from .export import export_html
 from .graph import DependencyGraph
 from .sources import SourceError, default_source_path, open_source
+from .updates import (
+    apply_plan,
+    fetch_availability,
+    outdated,
+    plan_change,
+    with_availability,
+)
 
 
 def _load(args) -> DependencyGraph:
@@ -20,6 +27,29 @@ def _load(args) -> DependencyGraph:
     graph = source.graph(args.platform, args.environment)
     for warning in graph.warnings:
         print(f"warning: {warning}", file=sys.stderr)
+    return graph
+
+
+def _targets(pins: list[str] | None) -> dict[str, str]:
+    targets = {}
+    for pin in pins or []:
+        name, sep, version = pin.partition("=")
+        # Accept both pkg=1.2 and pkg==1.2.
+        version = version.lstrip("=")
+        if not (sep and name and version):
+            raise SourceError(f"expected NAME=VERSION, got {pin!r}")
+        targets[name] = version
+    return targets
+
+
+def _with_updates(graph: DependencyGraph, args) -> DependencyGraph:
+    """Attach newest versions and the effect of any requested version changes."""
+    pins = _targets(args.set)
+    if not (args.latest or pins or args.update_all):
+        return graph
+    graph = with_availability(graph, fetch_availability(graph))
+    if pins or args.update_all:
+        graph = apply_plan(graph, plan_change(graph, pins, update_all=args.update_all))
     return graph
 
 
@@ -37,7 +67,7 @@ def _view(graph: DependencyGraph, args) -> DependencyGraph:
 
 
 def cmd_convert(args) -> None:
-    graph = _view(_load(args), args)
+    graph = _view(_with_updates(_load(args), args), args)
     output = Path(args.output) if args.output else None
     fmt = args.format or (output.suffix.lstrip(".") if output else "dot")
     if fmt == "html":
@@ -68,6 +98,29 @@ def cmd_leaves(args) -> None:
 def cmd_cycles(args) -> None:
     for cycle in _load(args).cycles():
         print(" -> ".join([*cycle, cycle[0]]))
+
+
+def cmd_outdated(args) -> None:
+    graph = _load(args)
+    rows = outdated(with_availability(graph, fetch_availability(graph)))
+    if args.json:
+        print(json.dumps(rows))
+        return
+    width = max((len(r["name"]) for r in rows), default=0)
+    for row in rows:
+        print(f"{row['name']:<{width}}  {row['version']}  ->  {row['latest']}")
+
+
+def cmd_plan(args) -> None:
+    graph = _load(args)
+    plan = plan_change(graph, _targets(args.pins), update_all=args.update_all)
+    if args.json:
+        print(json.dumps(plan.rows()))
+        return
+    for row in plan.rows():
+        print(f"{row['change']:<9} {plan.changes[row['name']].describe()}")
+    if not plan:
+        print("no changes")
 
 
 def cmd_related(args) -> None:
@@ -125,11 +178,35 @@ def parser() -> argparse.ArgumentParser:
     convert.add_argument("--hide", action="append", help="drop this package")
     convert.add_argument("--small", action="store_true", help="hide python and conda")
     convert.add_argument("--virtual", action="store_true", help="keep virtual packages")
+    convert.add_argument(
+        "--latest", action="store_true", help="look up newer versions and mark outdated packages"
+    )
+    convert.add_argument(
+        "--set",
+        action="append",
+        metavar="NAME=VERSION",
+        help="preview switching a package to this version and mark what changes (repeatable)",
+    )
+    convert.add_argument("--update-all", action="store_true", help="preview updating every package")
     convert.add_argument("--title", help="HTML page title")
     convert.add_argument(
         "--inline", action="store_true", help="embed Bokeh/Panel JS in the HTML file"
     )
     convert.set_defaults(func=cmd_convert)
+
+    outdated_cmd = sub.add_parser(
+        "outdated", parents=[query], help="packages with a newer version in their channels"
+    )
+    outdated_cmd.add_argument("--json", action="store_true")
+    outdated_cmd.set_defaults(func=cmd_outdated)
+
+    plan = sub.add_parser(
+        "plan", parents=[query], help="packages that change when some are set to other versions"
+    )
+    plan.add_argument("pins", nargs="*", metavar="NAME=VERSION")
+    plan.add_argument("--update-all", action="store_true", help="update every package")
+    plan.add_argument("--json", action="store_true")
+    plan.set_defaults(func=cmd_plan)
 
     leaves = sub.add_parser("leaves", parents=[query], help="packages nothing depends on")
     leaves.add_argument("--with-cycles", action="store_true")
