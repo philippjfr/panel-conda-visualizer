@@ -148,14 +148,10 @@ def test_browser_mode_sources(browser_mode):
 
 
 def test_browser_mode_is_upload_first(browser_mode):
-    import panel as pn
-
     explorer = Explorer()
     assert explorer.full is None and not explorer._message.visible
     assert not explorer._env_select.visible and not explorer._path_input.visible
-    assert explorer._intro.visible
-    # pmui's chunked binary upload does not survive Panel's pyodide worker.
-    assert type(explorer._upload) is pn.widgets.FileInput
+    assert explorer._intro.visible and explorer._upload.visible
 
 
 def test_upload_value_before_filename(browser_mode):

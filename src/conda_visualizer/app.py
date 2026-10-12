@@ -161,18 +161,13 @@ class Explorer(pn.viewable.Viewer):
         )
         # The browser build has no filesystem or conda install to browse.
         self._env_select.visible = self._path_input.visible = not BROWSER
-        accept = ".lock,.yml,.yaml,.dot,.gv,.txt"
-        if BROWSER:
-            # Panel's pyodide worker (<= 1.10.0b2) lets back-to-back messages overwrite
-            # each other, losing pmui's upload chunk, and fails to decode binary data;
-            # the core widget syncs a single string property. Drop once fixed upstream.
-            self._upload = pn.widgets.FileInput(
-                accept=accept, sizing_mode="stretch_width", margin=(5, 10)
-            )
-        else:
-            self._upload = pmui.FileInput(
-                label="Upload file", accept=accept, sizing_mode="stretch_width"
-            )
+        # Converted (pyodide-worker) builds need holoviz/panel#8844 for this widget's
+        # chunked uploads to reach Python.
+        self._upload = pmui.FileInput(
+            label="Upload file",
+            accept=".lock,.yml,.yaml,.dot,.gv,.txt",
+            sizing_mode="stretch_width",
+        )
         self._intro = pmui.Alert(
             object=(
                 "Running in your browser. Upload a DOT file (e.g. from "
