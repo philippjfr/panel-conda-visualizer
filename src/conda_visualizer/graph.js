@@ -220,6 +220,14 @@ export function render({ model, el }) {
   // Exposed for Playwright tests and console debugging.
   container._cy = cy;
 
+  // Cytoscape caches the container's page position and only refreshes it on window
+  // scroll or resize. Scrolling an ancestor, such as a page's main area, or content
+  // shifting above the graph would otherwise offset every pointer position.
+  const invalidateCoords = () => cy.renderer().invalidateContainerClientCoordsCache();
+  for (const type of ["pointerdown", "pointermove", "wheel"]) {
+    container.addEventListener(type, invalidateCoords, { capture: true, passive: true });
+  }
+
   // True once the viewport is user-controlled or pinned to a selection; stops auto-fitting.
   let touched = false;
   let isolated = false;

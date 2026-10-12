@@ -134,6 +134,28 @@ def test_toolbar_controls_sync(page):
     expect(page.locator(".cy-toolbar")).to_be_hidden()
 
 
+def test_click_lands_after_graph_moves(page):
+    spacer = pn.Spacer(height=0, width=10)
+    graph = CytoscapeGraph(elements=ELEMENTS, height=400, width=800, toolbar=False)
+    serve_component(page, pn.Column(spacer, graph))
+    wait_for_nodes(page, 5)
+    box = page.locator(".cy-container").bounding_box()
+    # Hovering makes Cytoscape cache the container position.
+    page.mouse.move(box["x"] + 50, box["y"] + 50)
+    top = box["y"]
+    # Moving the graph without a window scroll or resize leaves that cache stale.
+    spacer.height = 200
+    wait_until(lambda: page.locator(".cy-container").bounding_box()["y"] > top + 150, page)
+    x, y = page.locator(".cy-container").evaluate("""(el) => {
+      const cy = el._cy, n = cy.$id('base');
+      cy.zoom(1); cy.center(n);
+      const r = el.getBoundingClientRect(), p = n.renderedPosition();
+      return [r.left + p.x, r.top + p.y];
+    }""")
+    page.mouse.click(x, y)
+    wait_until(lambda: graph.selected == "base", page)
+
+
 def test_isolate(page):
     graph = CytoscapeGraph(elements=ELEMENTS, height=500, width=900, selected="lib")
     serve_component(page, graph)
