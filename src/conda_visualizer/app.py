@@ -163,8 +163,9 @@ class Explorer(pn.viewable.Viewer):
         self._env_select.visible = self._path_input.visible = not BROWSER
         accept = ".lock,.yml,.yaml,.dot,.gv,.txt"
         if BROWSER:
-            # pmui uploads in binary chunks, and Panel's pyodide worker drops binary
-            # buffers sent from the page; the core widget syncs a base64 string.
+            # Panel's pyodide worker (<= 1.10.0b2) lets back-to-back messages overwrite
+            # each other, losing pmui's upload chunk, and fails to decode binary data;
+            # the core widget syncs a single string property. Drop once fixed upstream.
             self._upload = pn.widgets.FileInput(
                 accept=accept, sizing_mode="stretch_width", margin=(5, 10)
             )
@@ -610,5 +611,7 @@ def create_app(source: str | None = None) -> Explorer:
     return Explorer(source=source) if source else Explorer()
 
 
-if pn.state.served:
+# Only when this file is the served script; since Panel 1.10 pn.state.served is also
+# true when a converted (Pyodide) app imports this module, which would add a second app.
+if __name__.startswith("bokeh_app"):
     create_app().servable(title="Conda Visualizer")
