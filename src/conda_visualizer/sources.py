@@ -36,6 +36,10 @@ from packaging.requirements import InvalidRequirement, Requirement
 
 from .graph import DependencyGraph, normalize_pypi, spec_name
 
+#: Running without a local filesystem or conda install: in Pyodide, or while
+#: ``panel convert`` prerenders the browser build.
+BROWSER = sys.platform == "emscripten" or bool(os.environ.get("CONDA_VISUALIZER_BROWSER"))
+
 try:
     import rattler
 except ImportError:  # optional: only needed to solve environment.yml
@@ -254,6 +258,8 @@ class PrefixSource(Source):
 
 def default_source_path() -> str:
     """The environment to show when none is given: explicit override, active env, or ours."""
+    if BROWSER:
+        return ""
     return os.environ.get("CONDA_VISUALIZER_SOURCE") or os.environ.get("CONDA_PREFIX") or sys.prefix
 
 
@@ -263,6 +269,8 @@ def conda_executable() -> str | None:
 
 def list_environments() -> dict[str, str]:
     """Map of display name to prefix for every environment conda knows about."""
+    if BROWSER:
+        return {}
     exe = conda_executable()
     envs: dict[str, str] = {}
     if exe:

@@ -130,3 +130,52 @@ def test_cli_convert(prefix, tmp_path, capsys):
     assert "__glibc" not in {n["id"] for n in data["nodes"]}
     main(["convert", str(prefix), "-o", str(tmp_path / "g.html")])
     assert (tmp_path / "g.html").stat().st_size > 1000
+
+
+@pytest.fixture
+def browser_mode(monkeypatch):
+    from conda_visualizer import sources
+
+    monkeypatch.setattr(sources, "BROWSER", True)
+    monkeypatch.setattr(app_module, "BROWSER", True)
+
+
+def test_browser_mode_sources(browser_mode):
+    from conda_visualizer import sources
+
+    assert sources.default_source_path() == ""
+    assert sources.list_environments() == {}
+
+
+def test_browser_mode_is_upload_first(browser_mode):
+    import panel as pn
+
+    explorer = Explorer()
+    assert explorer.full is None and not explorer._message.visible
+    assert not explorer._env_select.visible and not explorer._path_input.visible
+    assert explorer._intro.visible
+    # pmui's chunked binary upload does not survive Panel's pyodide worker.
+    assert type(explorer._upload) is pn.widgets.FileInput
+
+
+def test_upload_value_before_filename(browser_mode):
+    explorer = Explorer()
+    loads = []
+    original = explorer._open
+    explorer._open = lambda factory: (loads.append(1), original(factory))
+    dot = b'digraph { "a" -> "b" }'
+    # Pyodide delivers the two properties as separate updates.
+    explorer._upload.value = dot
+    explorer._upload.filename = "deps.dot"
+    assert explorer.full.source == "deps.dot"
+    explorer._upload.param.update(value=dot, filename="deps.dot")
+    assert len(loads) == 2  # value alone, then with its name; the repeat is skipped
+    explorer.focus = "a"
+    assert explorer._export_name == "deps-a"
+
+
+def test_version_tools_hidden_without_rattler(monkeypatch, prefix):
+    monkeypatch.setattr(app_module, "rattler", None)
+    explorer = Explorer(source=str(prefix))
+    assert explorer._versions_section() == []
+    assert explorer._page.main[0][2]._names == ["Package", "Packages", "Leaves", "Cycles", "Tree"]

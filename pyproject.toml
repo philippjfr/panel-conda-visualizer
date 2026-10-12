@@ -88,6 +88,7 @@ hatch-vcs = "*"
 [tool.pixi.feature.build.tasks]
 build-wheel = "python -m build ."
 check-wheel = "twine check dist/*"
+build-browser = "python scripts/build_browser.py"
 
 [tool.pixi.tasks]
 serve = "panel serve src/conda_visualizer/app.py --dev --show"

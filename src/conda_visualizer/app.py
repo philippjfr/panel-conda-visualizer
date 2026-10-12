@@ -20,11 +20,13 @@ from conda_visualizer.component import CytoscapeGraph
 from conda_visualizer.export import standalone
 from conda_visualizer.graph import DependencyGraph
 from conda_visualizer.sources import (
+    BROWSER,
     Source,
     SourceError,
     default_source_path,
     list_environments,
     open_source,
+    rattler,
 )
 from conda_visualizer.theme import (
     FAVICON,
@@ -129,6 +131,7 @@ class Explorer(pn.viewable.Viewer):
         self._updates = UpdatesPanel()
         self._keep_view = False
         self._source_obj: Source | None = None
+        self._uploaded: tuple | None = None
         super().__init__(**params)
 
         envs = discovered_environments()
@@ -156,9 +159,28 @@ class Explorer(pn.viewable.Viewer):
             placeholder="prefix, pixi.lock, conda-lock.yml, environment.yml or .dot",
             sizing_mode="stretch_width",
         )
-        self._upload = pmui.FileInput(
-            label="Upload file",
-            accept=".lock,.yml,.yaml,.dot,.gv,.txt",
+        # The browser build has no filesystem or conda install to browse.
+        self._env_select.visible = self._path_input.visible = not BROWSER
+        accept = ".lock,.yml,.yaml,.dot,.gv,.txt"
+        if BROWSER:
+            # pmui uploads in binary chunks, and Panel's pyodide worker drops binary
+            # buffers sent from the page; the core widget syncs a base64 string.
+            self._upload = pn.widgets.FileInput(
+                accept=accept, sizing_mode="stretch_width", margin=(5, 10)
+            )
+        else:
+            self._upload = pmui.FileInput(
+                label="Upload file", accept=accept, sizing_mode="stretch_width"
+            )
+        self._intro = pmui.Alert(
+            object=(
+                "Running in your browser. Upload a DOT file (e.g. from "
+                "`conda tree deptree --dot` or `conda-visualizer convert`), a pixi.lock, "
+                "conda-lock.yml or explicit lockfile."
+            ),
+            severity="info",
+            visible=BROWSER,
+            margin=(5, 10),
             sizing_mode="stretch_width",
         )
         self._platform_select = pmui.Select.from_param(
@@ -230,9 +252,23 @@ class Explorer(pn.viewable.Viewer):
     def _section(self, title):
         return pmui.Typography(title, variant="overline", margin=(15, 10, 0, 10))
 
+    def _versions_section(self) -> list:
+        # Looking up and previewing versions solves with py-rattler, which has
+        # no Pyodide build and is an optional extra elsewhere.
+        if rattler is None:
+            return []
+        return [
+            self._latest,
+            pmui.Divider(),
+            self._section("Versions"),
+            self._updates,
+            self._changes_only_switch,
+        ]
+
     def _build_layout(self):
         sidebar = pmui.Column(
             self._section("Source"),
+            self._intro,
             self._env_select,
             self._path_input,
             self._upload,
@@ -250,18 +286,14 @@ class Explorer(pn.viewable.Viewer):
             self._hide_virtual,
             self._small,
             self._versions,
-            self._latest,
-            pmui.Divider(),
-            self._section("Versions"),
-            self._updates,
-            self._changes_only_switch,
+            *self._versions_section(),
             sizing_mode="stretch_width",
         )
         tabs = pmui.Tabs(
             ("Package", self._details),
             ("Packages", self._table),
             ("Leaves", self._leaves),
-            ("Changes", self._updates.table),
+            *([("Changes", self._updates.table)] if rattler else []),
             ("Cycles", self._cycles),
             ("Tree", self._tree),
             dynamic=True,
@@ -294,7 +326,7 @@ class Explorer(pn.viewable.Viewer):
         )
 
     def _wire(self):
-        self._upload.param.watch(self._on_upload, "value")
+        self._upload.param.watch(self._on_upload, ["value", "filename"])
         self._clear_focus.on_click(self._on_clear_focus)
         self._graph.on_dblclick(self._on_dblclick)
         self._graph.param.watch(self._update_details, "selected")
@@ -323,16 +355,23 @@ class Explorer(pn.viewable.Viewer):
             return
         self._open(lambda: open_source(self.source))
 
-    def _on_upload(self, event):
-        if event.new:
-            self._open(lambda: open_source(event.new, filename=self._upload.filename))
+    def _on_upload(self, *events):
+        # In Pyodide value and filename arrive as separate updates; reload when the
+        # filename catches up so detection and labels use the right name.
+        value, filename = self._upload.value, self._upload.filename
+        if not value or (value, filename) == self._uploaded:
+            return
+        self._uploaded = (value, filename)
+        self._open(lambda: open_source(value, filename=filename))
 
     def _open(self, factory):
         self._graph.loading = True
         try:
             source = factory()
-        except (SourceError, OSError) as exc:
-            self._show_message(str(exc), "error")
+        except Exception as exc:
+            # Unexpected parser failures must reach the user too, not just the log.
+            expected = isinstance(exc, (SourceError, OSError))
+            self._show_message(str(exc) if expected else f"{type(exc).__name__}: {exc}", "error")
             self._graph.loading = False
             return
         self._source_obj = source
@@ -531,8 +570,11 @@ class Explorer(pn.viewable.Viewer):
 
     @property
     def _export_name(self):
-        stem = Path(self.full.source).name if self.full is not None else "graph"
-        return f"{stem}-{self.focus}" if self.focus else stem
+        name = Path(self.full.source).name if self.full is not None else "graph"
+        # Only strip input-file suffixes; prefix names like "dev3.14" contain dots too.
+        for suffix in (".dot", ".gv", ".lock", ".yml", ".yaml", ".txt"):
+            name = name.removesuffix(suffix)
+        return f"{name}-{self.focus}" if self.focus else name
 
     def _dot_file(self):
         self._dot.filename = f"{self._export_name}.dot"

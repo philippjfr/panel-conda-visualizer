@@ -32,6 +32,19 @@ Lookups use py-rattler and need network access to the channels. "Newest" means t
 
 The exported HTML needs no Python server. Search, highlighting, isolation, layout switching and PNG/SVG export run in the browser. Cytoscape is embedded from the compiled bundle in the wheel. Bokeh and Panel load from their CDNs unless `--inline` is passed, which leaves only the brand fonts (Inter, Space Grotesk, Space Mono) on Google Fonts, with Arial as the offline fallback.
 
+## In the browser
+
+A Pyodide build runs the whole app client-side: https://cdn.holoviz.org/panel-conda-visualizer/v0.1.0a0/app/index.html
+
+There is no filesystem or conda install to read there, so it starts empty and takes uploads: DOT files (from `conda tree deptree --dot` or `conda-visualizer convert -o graph.dot`), `pixi.lock`, `conda-lock.yml` and explicit lockfiles. `environment.yml` and the Versions tools need py-rattler, which has no Pyodide build, so they are unavailable.
+
+The build installs the wheel from the URL it will be served at, since browsers cannot fetch the `file:` URLs `panel convert` writes for local wheels:
+
+```bash
+pixi run -e build build-browser --base-url http://localhost:8123     # local testing
+python -m http.server 8123 --directory build/browser
+```
+
 The graph is also available as a component:
 
 ```python
