@@ -52,6 +52,8 @@ pixi run -e build python -m build --wheel --outdir build/wheel
 python scripts/build_browser.py --wheel build/wheel/conda_visualizer-*.whl --base-url URL
 ```
 
+`--runtime pyodide --standalone` instead writes a single `index.html` that runs Python on the page's main thread and loads the wheel from `--base-url`, with no service worker or other files, so it can be opened straight from disk.
+
 The graph is also available as a component:
 
 ```python

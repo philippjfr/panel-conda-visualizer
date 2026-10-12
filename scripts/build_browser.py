@@ -32,13 +32,25 @@ def main(argv=None) -> None:
     parser.add_argument("--base-url", required=True, help="URL the output directory is served at")
     parser.add_argument("--out", default="build/browser", help="output directory")
     parser.add_argument("--wheel", help="use this wheel instead of building one")
+    parser.add_argument(
+        "--runtime",
+        default="pyodide-worker",
+        choices=["pyodide-worker", "pyodide"],
+        help="run Python in a web worker (keeps the page responsive) or on the main thread",
+    )
+    parser.add_argument(
+        "--standalone",
+        action="store_true",
+        help="write only index.html: no PWA files and no wheel copy, so --base-url must "
+        "already host the wheel",
+    )
     args = parser.parse_args(argv)
 
     out = (ROOT / args.out).resolve()
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     if args.wheel:
-        wheel = Path(shutil.copy(args.wheel, out))
+        wheel = Path(args.wheel) if args.standalone else Path(shutil.copy(args.wheel, out))
     else:
         # The hatch build hook compiles the JS bundle into the wheel.
         subprocess.run(
@@ -51,10 +63,10 @@ def main(argv=None) -> None:
     convert_apps(
         [str(ROOT / "browser" / "index.py")],
         dest_path=str(out),
-        runtime="pyodide-worker",
+        runtime=args.runtime,
         requirements=[f"{args.base_url.rstrip('/')}/{wheel.name}"],
         build_index=False,
-        build_pwa=True,
+        build_pwa=not args.standalone,
         title="Conda Visualizer",
     )
     for path in sorted(out.iterdir()):
