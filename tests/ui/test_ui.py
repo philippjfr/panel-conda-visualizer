@@ -156,6 +156,52 @@ def test_click_lands_after_graph_moves(page):
     wait_until(lambda: graph.selected == "base", page)
 
 
+def _node_center(page, node):
+    return page.locator(".cy-container").evaluate(f"""(el) => {{
+      const cy = el._cy, n = cy.$id('{node}');
+      cy.zoom(1); cy.center(n);
+      const r = el.getBoundingClientRect(), p = n.renderedPosition();
+      return [r.left + p.x, r.top + p.y];
+    }}""")
+
+
+def test_hover_tooltip_after_graph_moves(page):
+    spacer = pn.Spacer(height=0, width=10)
+    graph = CytoscapeGraph(elements=ELEMENTS, height=400, width=800, toolbar=False)
+    serve_component(page, pn.Column(spacer, graph))
+    wait_for_nodes(page, 5)
+    box = page.locator(".cy-container").bounding_box()
+    page.mouse.move(box["x"] + 50, box["y"] + 50)
+    page.mouse.move(5, 5)
+    spacer.height = 200
+    wait_until(lambda: page.locator(".cy-container").bounding_box()["y"] > box["y"] + 150, page)
+    # The hover target and tooltip must follow the graph to its new position.
+    x, y = _node_center(page, "base")
+    page.mouse.move(x, y)
+    tooltip = page.locator(".cy-tooltip")
+    expect(tooltip.locator(".cy-tt-title")).to_have_text("base")
+    tip = tooltip.bounding_box()
+    assert abs(tip["x"] - (x + 14)) < 3 and abs(tip["y"] - (y + 14)) < 3
+
+
+def test_tooltip_follows_pointer_and_hides_on_leave(page):
+    graph = CytoscapeGraph(elements=ELEMENTS, height=400, width=800, toolbar=False)
+    serve_component(page, graph)
+    wait_for_nodes(page, 5)
+    x, y = _node_center(page, "libextra")
+    page.mouse.move(x - 10, y)
+    tooltip = page.locator(".cy-tooltip")
+    expect(tooltip).to_be_visible()
+    start = tooltip.bounding_box()["x"]
+    page.mouse.move(x + 10, y)
+    wait_until(lambda: abs(tooltip.bounding_box()["x"] - (start + 20)) < 3, page)
+    # Leaving in one move skips Cytoscape's mouseout.
+    page.mouse.move(2, 2)
+    expect(tooltip).to_be_hidden()
+    page.mouse.move(x, y)
+    expect(tooltip).to_be_visible()
+
+
 def test_isolate(page):
     graph = CytoscapeGraph(elements=ELEMENTS, height=500, width=900, selected="lib")
     serve_component(page, graph)

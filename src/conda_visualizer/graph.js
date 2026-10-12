@@ -224,7 +224,8 @@ export function render({ model, el }) {
   // scroll or resize. Scrolling an ancestor, such as a page's main area, or content
   // shifting above the graph would otherwise offset every pointer position.
   const invalidateCoords = () => cy.renderer().invalidateContainerClientCoordsCache();
-  for (const type of ["pointerdown", "pointermove", "wheel"]) {
+  // Cytoscape also hit-tests on pointerover, which precedes pointermove on entry.
+  for (const type of ["pointerover", "pointerdown", "pointermove", "wheel"]) {
     container.addEventListener(type, invalidateCoords, { capture: true, passive: true });
   }
 
@@ -432,6 +433,10 @@ export function render({ model, el }) {
   function showTooltip(evt, html) {
     tooltip.innerHTML = html;
     tooltip.style.display = "block";
+    positionTooltip(evt);
+  }
+
+  function positionTooltip(evt) {
     const rect = el.getBoundingClientRect();
     const offset = container.offsetTop;
     const x = evt.renderedPosition.x;
@@ -455,7 +460,16 @@ export function render({ model, el }) {
     showTooltip(evt, `<div class="cy-tt-title">${esc(d.source)} → ${esc(d.target)}</div>` +
       (d.spec ? `<div><span>spec</span>${esc(d.spec)}</div>` : ""));
   });
+  cy.on("mousemove", "node, edge", (evt) => {
+    if (tooltip.style.display === "block") positionTooltip(evt);
+  });
   cy.on("mouseout", "node, edge", () => { tooltip.style.display = "none"; });
+  // Leaving the graph in one move skips Cytoscape's mouseout, which leaves the tooltip
+  // up and suppresses the next mouseover on the same element.
+  container.addEventListener("pointerleave", () => {
+    tooltip.style.display = "none";
+    cy.renderer().hoverData.last = null;
+  });
   cy.on("viewport", () => { tooltip.style.display = "none"; });
 
   cy.on("tap", "node", (evt) => { model.selected = evt.target.id(); });
