@@ -34,7 +34,7 @@ The exported HTML needs no Python server. Search, highlighting, isolation, layou
 
 ## In the browser
 
-A Pyodide build runs the whole app client-side: https://cdn.holoviz.org/panel-conda-visualizer/v0.1.0a0/app/index.html
+A Pyodide build runs the whole app client-side: https://assets.holoviz.org/panel-conda-visualizer/index.html (the `v0.1.0a0` build, also at https://cdn.holoviz.org/panel-conda-visualizer/v0.1.0a0/app/index.html). It takes about 30 seconds to start.
 
 There is no filesystem or conda install to read there, so it starts empty and takes uploads: DOT files (from `conda tree deptree --dot` or `conda-visualizer convert -o graph.dot`), `pixi.lock`, `conda-lock.yml` and explicit lockfiles. `environment.yml` and the Versions tools need py-rattler, which has no Pyodide build, so they are unavailable.
 
