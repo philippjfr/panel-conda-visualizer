@@ -28,9 +28,28 @@ import sys
 import tempfile
 from pathlib import Path
 
+import panel_material_ui as pmui
 from panel.io.convert import convert_apps
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def bundle_material_ui(out: Path) -> None:
+    """Copy panel-material-ui's assets to where browser/index.py points it offline.
+
+    It loads its JS and CSS bundles from its own CDN root under Pyodide, which
+    ``panel convert --offline`` does not redirect.
+    """
+    bundled = [w.name for w in (out / "pyodide").glob("panel_material_ui-*.whl")]
+    version = bundled[0].split("-")[1] if bundled else pmui.__version__
+    if version != pmui.__version__:
+        raise SystemExit(
+            f"panel-material-ui {pmui.__version__} is installed but {version} was bundled; "
+            "install the bundled version so the copied assets match."
+        )
+    shutil.copytree(
+        Path(pmui.__file__).parent / "dist", out / "static" / "panel-material-ui" / f"v{version}"
+    )
 
 
 def main(argv=None) -> None:
@@ -57,11 +76,18 @@ def main(argv=None) -> None:
         "access (needs a Panel with bundle support, node and npm)",
     )
     parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="like --bundle, but also bundle Panel's and its extensions' JS and CSS so the "
+        "app needs no network access at all",
+    )
+    parser.add_argument(
         "--panel-version",
         default="auto",
         help="'local' uses the Panel and Bokeh wheels built in a Panel checkout",
     )
     args = parser.parse_args(argv)
+    args.bundle = args.bundle or args.offline
     if not (args.base_url or args.bundle):
         parser.error("--base-url is required unless --bundle is given")
 
@@ -93,10 +119,13 @@ def main(argv=None) -> None:
         requirements=[requirement],
         panel_version=args.panel_version,
         bundle=args.bundle,
+        offline=args.offline,
         build_index=False,
         build_pwa=not args.standalone,
         title="Conda Visualizer",
     )
+    if args.offline:
+        bundle_material_ui(out)
     for path in sorted(out.iterdir()):
         print(f"{path.stat().st_size:>10}  {path.relative_to(ROOT)}")
 
