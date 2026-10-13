@@ -54,6 +54,12 @@ python scripts/build_browser.py --wheel build/wheel/conda_visualizer-*.whl --bas
 
 `--runtime pyodide --standalone` instead writes a single `index.html` that runs Python on the page's main thread and loads the wheel from `--base-url`, with no service worker or other files, so it can be opened straight from disk.
 
+With a Panel that supports bundling, `--bundle` copies Pyodide and every wheel, including the local conda-visualizer wheel, into `pyodide/` next to the app, so no Python package or Pyodide file comes from a CDN or PyPI. `--panel-version local` uses the Panel and Bokeh wheels built in a Panel checkout (`pixi run -e build build-pyodide`). Run it from an environment with that Panel installed and node and npm on the `PATH`:
+
+```bash
+python scripts/build_browser.py --bundle --panel-version local --wheel build/wheel/conda_visualizer-*.whl --out build/bundle
+```
+
 The graph is also available as a component:
 
 ```python
